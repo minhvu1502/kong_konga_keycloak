@@ -1,0 +1,103 @@
+version: '3'
+
+services:
+    postgres-keycloak:
+      image: postgres
+      volumes:
+        - postgres_data:/var/lib/postgresql/data
+      environment:
+        POSTGRES_DB: keycloak
+        POSTGRES_USER: keycloak
+        POSTGRES_PASSWORD: password
+
+    keycloak:
+        image: quay.io/keycloak/keycloak:latest
+        environment:
+            DB_VENDOR: POSTGRES
+            DB_ADDR: postgres-keycloak
+            DB_DATABASE: keycloak
+            DB_USER: keycloak
+            DB_SCHEMA: public
+            DB_PASSWORD: password
+            KEYCLOAK_USER: admin
+            KEYCLOAK_PASSWORD: Pa55w0rd
+            PROXY_ADDRESS_FORWARDING: "true"
+            REDIRECT_SOCKET: "proxy-http"
+            KEYCLOAK_FRONTEND_URL: http://10.0.20.32:6868/auth
+        ports:
+            - 6868:8080
+        depends_on:
+            - postgres-keycloak
+
+    kong-database:
+        image: postgres
+        ports:
+            - 5432
+        environment:
+            - POSTGRES_USER=kong
+            - POSTGRES_DB=kong
+            - POSTGRES_PASSWORD=kong
+        volumes:
+            - "db-data-kong-postgres:/var/lib/postgresql/data"
+
+    kong-migrations:
+        image: kong
+        environment:
+            - KONG_DATABASE=postgres
+            - KONG_PG_HOST=kong-database
+            - KONG_PG_PASSWORD=kong
+            - KONG_CASSANDRA_CONTACT_POINTS=kong-database
+        command: kong migrations bootstrap
+        restart: always
+        depends_on:
+            - kong-database
+
+    kong:
+        image: kong
+        environment:
+            - LC_CTYPE=en_US.UTF-8
+            - LC_ALL=en_US.UTF-8
+            - KONG_DATABASE=postgres
+            - KONG_PG_HOST=kong-database
+            - KONG_PG_USER=kong
+            - KONG_PG_PASSWORD=kong
+            - KONG_CASSANDRA_CONTACT_POINTS=kong-database
+            - KONG_PROXY_ACCESS_LOG=/dev/stdout
+            - KONG_ADMIN_ACCESS_LOG=/dev/stdout
+            - KONG_PROXY_ERROR_LOG=/dev/stderr
+            - KONG_ADMIN_ERROR_LOG=/dev/stderr
+            - KONG_ADMIN_LISTEN=0.0.0.0:8001, 0.0.0.0:8444 ssl
+        restart: always
+        ports:
+            - 8686:8000
+            # - 8443:8443
+            - 8082:8001
+            # - 8444:8444
+        links:
+            - kong-database:kong-database
+        depends_on:
+            - kong-migrations
+
+    konga:
+        image: pantsel/konga
+        ports:
+            - 1337:1337
+        links:
+            - kong:kong
+        environment:
+            - DB_ADAPTER=postgres
+            - DB_HOST=kong-database
+            - DB_PORT=5432
+            - DB_USER=kong
+            - DB_PASSWORD=kong
+            - DB_DATABASE=kong
+            - NODE_ENV=production
+        
+volumes:
+    db-data-kong-postgres:
+    postgres_data:
+    db-data-keycloak-postgres:
+        
+# networks:
+#     kong-net:
+#     external: false
